@@ -1,54 +1,51 @@
 // SPDX-License-Identifier: LGPL-3.0
 pragma solidity ^0.8.22;
 
-import { IERC20 } from "openzeppelin-solidity/contracts/token/ERC20/IERC20.sol";
-import { ConditionalTokens } from "@gnosis.pm/conditional-tokens-contracts/contracts/ConditionalTokens.sol";
-import { CTHelpers } from "@gnosis.pm/conditional-tokens-contracts/contracts/CTHelpers.sol";
-import { Create2CloneFactory } from "./Create2CloneFactory.sol";
-import { FixedProductMarketMaker, FixedProductMarketMakerData } from "./FixedProductMarketMaker.sol";
-import { ERC1155TokenReceiver } from "@gnosis.pm/conditional-tokens-contracts/contracts/ERC1155/ERC1155TokenReceiver.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {ConditionalTokens} from "@lay3rlabs/conditional-tokens-contracts/ConditionalTokens.sol";
+import {CTHelpers} from "@lay3rlabs/conditional-tokens-contracts/CTHelpers.sol";
+import {Create2CloneFactory} from "./Create2CloneFactory.sol";
+import {FixedProductMarketMaker, FixedProductMarketMakerData} from "./FixedProductMarketMaker.sol";
+import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
 
-
-contract FPMMDeterministicFactory is Create2CloneFactory, FixedProductMarketMakerData, ERC1155TokenReceiver {
+contract FPMMDeterministicFactory is Create2CloneFactory, FixedProductMarketMakerData, IERC1155Receiver {
     event FixedProductMarketMakerCreation(
         address indexed creator,
         FixedProductMarketMaker fixedProductMarketMaker,
         ConditionalTokens conditionalTokens,
         IERC20 collateralToken,
         bytes32[] conditionIds,
-        uint fee
+        uint256 fee
     );
 
     FixedProductMarketMaker public implementationMaster;
     address internal currentFunder;
 
-    constructor() public {
+    constructor() {
         implementationMaster = new FixedProductMarketMaker();
     }
 
-    function cloneConstructor(bytes calldata consData) external {
-        (
-            ConditionalTokens _conditionalTokens,
-            IERC20 _collateralToken,
-            bytes32[] memory _conditionIds,
-            uint _fee
-        ) = abi.decode(consData, (ConditionalTokens, IERC20, bytes32[], uint));
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+        return interfaceId == type(IERC1155Receiver).interfaceId;
+    }
+
+    function cloneConstructor(bytes calldata consData) external override {
+        (ConditionalTokens _conditionalTokens, IERC20 _collateralToken, bytes32[] memory _conditionIds, uint256 _fee) =
+            abi.decode(consData, (ConditionalTokens, IERC20, bytes32[], uint256));
 
         _supportedInterfaces[_INTERFACE_ID_ERC165] = true;
-        _supportedInterfaces[
-            ERC1155TokenReceiver(0).onERC1155Received.selector ^
-            ERC1155TokenReceiver(0).onERC1155BatchReceived.selector
-        ] = true;
+        _supportedInterfaces[IERC1155Receiver(address(0)).onERC1155Received.selector
+            ^ IERC1155Receiver(address(0)).onERC1155BatchReceived.selector] = true;
 
         conditionalTokens = _conditionalTokens;
         collateralToken = _collateralToken;
         conditionIds = _conditionIds;
         fee = _fee;
 
-        uint atomicOutcomeSlotCount = 1;
-        outcomeSlotCounts = new uint[](conditionIds.length);
-        for (uint i = 0; i < conditionIds.length; i++) {
-            uint outcomeSlotCount = conditionalTokens.getOutcomeSlotCount(conditionIds[i]);
+        uint256 atomicOutcomeSlotCount = 1;
+        outcomeSlotCounts = new uint256[](conditionIds.length);
+        for (uint256 i = 0; i < conditionIds.length; i++) {
+            uint256 outcomeSlotCount = conditionalTokens.getOutcomeSlotCount(conditionIds[i]);
             atomicOutcomeSlotCount *= outcomeSlotCount;
             outcomeSlotCounts[i] = outcomeSlotCount;
         }
@@ -59,36 +56,25 @@ contract FPMMDeterministicFactory is Create2CloneFactory, FixedProductMarketMake
         require(positionIds.length == atomicOutcomeSlotCount, "position IDs construction failed!?");
     }
 
-    function _recordCollectionIDsForAllConditions(uint conditionsLeft, bytes32 parentCollectionId) private {
-        if(conditionsLeft == 0) {
+    function _recordCollectionIDsForAllConditions(uint256 conditionsLeft, bytes32 parentCollectionId) private {
+        if (conditionsLeft == 0) {
             positionIds.push(CTHelpers.getPositionId(collateralToken, parentCollectionId));
             return;
         }
 
         conditionsLeft--;
 
-        uint outcomeSlotCount = outcomeSlotCounts[conditionsLeft];
+        uint256 outcomeSlotCount = outcomeSlotCounts[conditionsLeft];
 
         collectionIds[conditionsLeft].push(parentCollectionId);
-        for(uint i = 0; i < outcomeSlotCount; i++) {
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
             _recordCollectionIDsForAllConditions(
-                conditionsLeft,
-                CTHelpers.getCollectionId(
-                    parentCollectionId,
-                    conditionIds[conditionsLeft],
-                    1 << i
-                )
+                conditionsLeft, CTHelpers.getCollectionId(parentCollectionId, conditionIds[conditionsLeft], 1 << i)
             );
         }
     }
 
-    function onERC1155Received(
-        address operator,
-        address from,
-        uint256 id,
-        uint256 value,
-        bytes calldata data
-    )
+    function onERC1155Received(address operator, address from, uint256 id, uint256 value, bytes calldata data)
         external
         returns (bytes4)
     {
@@ -102,42 +88,29 @@ contract FPMMDeterministicFactory is Create2CloneFactory, FixedProductMarketMake
         uint256[] calldata ids,
         uint256[] calldata values,
         bytes calldata data
-    )
-        external
-        returns (bytes4)
-    {
+    ) external returns (bytes4) {
         ConditionalTokens(msg.sender).safeBatchTransferFrom(address(this), currentFunder, ids, values, data);
         return this.onERC1155BatchReceived.selector;
     }
 
-
     function create2FixedProductMarketMaker(
-        uint saltNonce,
+        uint256 saltNonce,
         ConditionalTokens conditionalTokens,
         IERC20 collateralToken,
         bytes32[] calldata conditionIds,
-        uint fee,
-        uint initialFunds,
-        uint[] calldata distributionHint
-    )
-        external
-        returns (FixedProductMarketMaker)
-    {
+        uint256 fee,
+        uint256 initialFunds,
+        uint256[] calldata distributionHint
+    ) external returns (FixedProductMarketMaker) {
         FixedProductMarketMaker fixedProductMarketMaker = FixedProductMarketMaker(
-            create2Clone(address(implementationMaster), saltNonce, abi.encode(
-                conditionalTokens,
-                collateralToken,
-                conditionIds,
-                fee
-            ))
+            create2Clone(
+                address(implementationMaster),
+                saltNonce,
+                abi.encode(conditionalTokens, collateralToken, conditionIds, fee)
+            )
         );
         emit FixedProductMarketMakerCreation(
-            msg.sender,
-            fixedProductMarketMaker,
-            conditionalTokens,
-            collateralToken,
-            conditionIds,
-            fee
+            msg.sender, fixedProductMarketMaker, conditionalTokens, collateralToken, conditionIds, fee
         );
 
         if (initialFunds > 0) {

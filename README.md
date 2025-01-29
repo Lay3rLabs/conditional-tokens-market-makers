@@ -6,6 +6,8 @@ Solidity smart contracts for automated market makers for conditional tokens, for
 
 https://conditional-tokens.readthedocs.io/en/latest/
 
+https://gnosis-pm-contracts.readthedocs.io/en/latest/
+
 ## Usage
 
 ### Build

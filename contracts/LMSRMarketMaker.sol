@@ -1,74 +1,68 @@
 // SPDX-License-Identifier: LGPL-3.0
 pragma solidity ^0.8.22;
 
-import { SafeMath } from "openzeppelin-solidity/contracts/math/SafeMath.sol";
-import { Fixed192x64Math } from "@gnosis.pm/util-contracts/contracts/Fixed192x64Math.sol";
-import { MarketMaker } from "./MarketMaker.sol";
+import {Fixed192x64Math} from "./Fixed192x64Math.sol";
+import {MarketMaker} from "./MarketMaker.sol";
 
 /// @title LMSR market maker contract - Calculates share prices based on share distribution and initial funding
 /// @author Alan Lu - <alan.lu@gnosis.pm>
 contract LMSRMarketMaker is MarketMaker {
-    using SafeMath for uint;
-
     /*
      *  Constants
      */
-    uint constant ONE = 0x10000000000000000;
-    int constant EXP_LIMIT = 3394200909562557497344;
+    uint256 constant ONE = 0x10000000000000000;
+    int256 constant EXP_LIMIT = 3394200909562557497344;
+
+    constructor(address initialOwner) MarketMaker(initialOwner) {}
 
     /// @dev Calculates the net cost for executing a given trade.
     /// @param outcomeTokenAmounts Amounts of outcome tokens to buy from the market. If an amount is negative, represents an amount to sell to the market.
-    /// @return Net cost of trade. If positive, represents amount of collateral which would be paid to the market for the trade. If negative, represents amount of collateral which would be received from the market for the trade.
-    function calcNetCost(int[] memory outcomeTokenAmounts)
-        public
-        view
-        returns (int netCost)
-    {
+    /// @return netCost Net cost of trade. If positive, represents amount of collateral which would be paid to the market for the trade. If negative, represents amount of collateral which would be received from the market for the trade.
+    function calcNetCost(int256[] memory outcomeTokenAmounts) public view override returns (int256 netCost) {
         require(outcomeTokenAmounts.length == atomicOutcomeSlotCount);
 
-        int[] memory otExpNums = new int[](atomicOutcomeSlotCount);
-        for (uint i = 0; i < atomicOutcomeSlotCount; i++) {
-            int balance = int(pmSystem.balanceOf(address(this), generateAtomicPositionId(i)));
+        int256[] memory otExpNums = new int256[](atomicOutcomeSlotCount);
+        for (uint256 i = 0; i < atomicOutcomeSlotCount; i++) {
+            int256 balance = int256(pmSystem.balanceOf(address(this), generateAtomicPositionId(i)));
             require(balance >= 0);
-            otExpNums[i] = outcomeTokenAmounts[i].sub(balance);
+            otExpNums[i] = outcomeTokenAmounts[i] - balance;
         }
 
-        int log2N = Fixed192x64Math.binaryLog(atomicOutcomeSlotCount * ONE, Fixed192x64Math.EstimationMode.UpperBound);
+        int256 log2N =
+            Fixed192x64Math.binaryLog(atomicOutcomeSlotCount * ONE, Fixed192x64Math.EstimationMode.UpperBound);
 
-        (uint sum, int offset, ) = sumExpOffset(log2N, otExpNums, 0, Fixed192x64Math.EstimationMode.UpperBound);
+        (uint256 sum, int256 offset,) = sumExpOffset(log2N, otExpNums, 0, Fixed192x64Math.EstimationMode.UpperBound);
         netCost = Fixed192x64Math.binaryLog(sum, Fixed192x64Math.EstimationMode.UpperBound);
-        netCost = netCost.add(offset);
-        netCost = (netCost.mul(int(ONE)) / log2N).mul(int(funding));
+        netCost += offset;
+        netCost = ((netCost * int256(ONE)) / log2N) * int256(funding);
 
         // Integer division for negative numbers already uses ceiling,
         // so only check boundary condition for positive numbers
-        if(netCost <= 0 || netCost / int(ONE) * int(ONE) == netCost) {
-            netCost /= int(ONE);
+        if (netCost <= 0 || (netCost / int256(ONE)) * int256(ONE) == netCost) {
+            netCost /= int256(ONE);
         } else {
-            netCost = netCost / int(ONE) + 1;
+            netCost = netCost / int256(ONE) + 1;
         }
     }
 
     /// @dev Returns marginal price of an outcome
     /// @param outcomeTokenIndex Index of outcome to determine marginal price of
-    /// @return Marginal price of an outcome as a fixed point number
-    function calcMarginalPrice(uint8 outcomeTokenIndex)
-        public
-        view
-        returns (uint price)
-    {
-        int[] memory negOutcomeTokenBalances = new int[](atomicOutcomeSlotCount);
-        for (uint i = 0; i < atomicOutcomeSlotCount; i++) {
-            int negBalance = -int(pmSystem.balanceOf(address(this), generateAtomicPositionId(i)));
+    /// @return price Marginal price of an outcome as a fixed point number
+    function calcMarginalPrice(uint8 outcomeTokenIndex) public view returns (uint256 price) {
+        int256[] memory negOutcomeTokenBalances = new int256[](atomicOutcomeSlotCount);
+        for (uint256 i = 0; i < atomicOutcomeSlotCount; i++) {
+            int256 negBalance = -int256(pmSystem.balanceOf(address(this), generateAtomicPositionId(i)));
             require(negBalance <= 0);
             negOutcomeTokenBalances[i] = negBalance;
         }
 
-        int log2N = Fixed192x64Math.binaryLog(negOutcomeTokenBalances.length * ONE, Fixed192x64Math.EstimationMode.Midpoint);
+        int256 log2N =
+            Fixed192x64Math.binaryLog(negOutcomeTokenBalances.length * ONE, Fixed192x64Math.EstimationMode.Midpoint);
         // The price function is exp(quantities[i]/b) / sum(exp(q/b) for q in quantities)
         // To avoid overflow, calculate with
         // exp(quantities[i]/b - offset) / sum(exp(q/b - offset) for q in quantities)
-        (uint sum, , uint outcomeExpTerm) = sumExpOffset(log2N, negOutcomeTokenBalances, outcomeTokenIndex, Fixed192x64Math.EstimationMode.Midpoint);
+        (uint256 sum,, uint256 outcomeExpTerm) =
+            sumExpOffset(log2N, negOutcomeTokenBalances, outcomeTokenIndex, Fixed192x64Math.EstimationMode.Midpoint);
         return outcomeExpTerm / (sum / ONE);
     }
 
@@ -80,12 +74,15 @@ contract LMSRMarketMaker is MarketMaker {
     /// @param log2N Binary logarithm of the number of outcomes
     /// @param otExpNums Numerators of the exponents, denoted as q in the aforementioned formula
     /// @param outcomeIndex Index of exponential term to extract (for use by marginal price function)
-    /// @return A result structure composed of the sum, the offset used, and the summand associated with the supplied index
-    function sumExpOffset(int log2N, int[] memory otExpNums, uint8 outcomeIndex, Fixed192x64Math.EstimationMode estimationMode)
-        private
-        view
-        returns (uint sum, int offset, uint outcomeExpTerm)
-    {
+    /// @return sum Sum of the exponential terms
+    /// @return offset Offset used to fit the sum in 248-256 bits
+    /// @return outcomeExpTerm Exponential term associated with the supplied index
+    function sumExpOffset(
+        int256 log2N,
+        int256[] memory otExpNums,
+        uint8 outcomeIndex,
+        Fixed192x64Math.EstimationMode estimationMode
+    ) private view returns (uint256 sum, int256 offset, uint256 outcomeExpTerm) {
         // Naive calculation of this causes an overflow
         // since anything above a bit over 133*ONE supplied to exp will explode
         // as exp(133) just about fits into 192 bits of whole number data.
@@ -101,16 +98,15 @@ contract LMSRMarketMaker is MarketMaker {
         // BIG offset will cause the tiny quantities to go really negative
         // causing the associated exponentials to vanish.
 
-        require(log2N >= 0 && int(funding) >= 0);
+        require(log2N >= 0 && int256(funding) >= 0);
         offset = Fixed192x64Math.max(otExpNums);
-        offset = offset.mul(log2N) / int(funding);
-        offset = offset.sub(EXP_LIMIT);
-        uint term;
+        offset = (offset * log2N) / int256(funding);
+        offset -= EXP_LIMIT;
+        uint256 term;
         for (uint8 i = 0; i < otExpNums.length; i++) {
-            term = Fixed192x64Math.pow2((otExpNums[i].mul(log2N) / int(funding)).sub(offset), estimationMode);
-            if (i == outcomeIndex)
-                outcomeExpTerm = term;
-            sum = sum.add(term);
+            term = Fixed192x64Math.pow2((otExpNums[i] * log2N) / int256(funding) - offset, estimationMode);
+            if (i == outcomeIndex) outcomeExpTerm = term;
+            sum += term;
         }
     }
 }

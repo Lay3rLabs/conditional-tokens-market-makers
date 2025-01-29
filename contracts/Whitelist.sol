@@ -14,14 +14,14 @@ contract Whitelist is Ownable {
     constructor(address initialOwner) Ownable(initialOwner) {}
 
     function addToWhitelist(address[] calldata users) external onlyOwner {
-        for (uint i = 0; i < users.length; i++) {
+        for (uint256 i = 0; i < users.length; i++) {
             isWhitelisted[users[i]] = true;
         }
         emit UsersAddedToWhitelist(users);
     }
 
     function removeFromWhitelist(address[] calldata users) external onlyOwner {
-        for (uint i = 0; i < users.length; i++) {
+        for (uint256 i = 0; i < users.length; i++) {
             isWhitelisted[users[i]] = false;
         }
         emit UsersRemovedFromWhitelist(users);

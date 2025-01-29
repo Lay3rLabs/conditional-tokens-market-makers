@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: LGPL-3.0
 pragma solidity ^0.8.22;
 
-abstract contract Create2CloneFactory {
+abstract contract ConstructedCloneFactory {
     event CloneCreated(address indexed target, address clone);
 
     function cloneConstructor(bytes calldata) external virtual;
 
-    function create2Clone(address target, uint256 saltNonce, bytes memory consData) internal returns (address result) {
+    function createClone(address target, bytes memory consData) internal returns (address result) {
         bytes memory consPayload = abi.encodeWithSignature("cloneConstructor(bytes)", consData);
         bytes memory clone = new bytes(consPayload.length + 99);
 
@@ -22,14 +22,12 @@ abstract contract Create2CloneFactory {
             clone[99 + i] = consPayload[i];
         }
 
-        bytes32 salt = keccak256(abi.encode(msg.sender, saltNonce));
-
         assembly {
             let len := mload(clone)
             let data := add(clone, 0x20)
-            result := create2(0, data, len, salt)
+            result := create(0, data, len)
         }
 
-        require(result != address(0), "create2 failed");
+        require(result != address(0));
     }
 }

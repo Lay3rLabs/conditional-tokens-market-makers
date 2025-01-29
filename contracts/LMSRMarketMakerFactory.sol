@@ -1,37 +1,38 @@
 // SPDX-License-Identifier: LGPL-3.0
 pragma solidity ^0.8.22;
 
-import { IERC20 } from "openzeppelin-solidity/contracts/token/ERC20/IERC20.sol";
-import { ConditionalTokens } from "@gnosis.pm/conditional-tokens-contracts/contracts/ConditionalTokens.sol";
-import { CTHelpers } from "@gnosis.pm/conditional-tokens-contracts/contracts/CTHelpers.sol";
-import { ConstructedCloneFactory } from "@gnosis.pm/util-contracts/contracts/ConstructedCloneFactory.sol";
-import { LMSRMarketMaker } from "./LMSRMarketMaker.sol";
-import { Whitelist } from "./Whitelist.sol";
-import { ERC1155TokenReceiver } from "@gnosis.pm/conditional-tokens-contracts/contracts/ERC1155/ERC1155TokenReceiver.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {ConditionalTokens} from "@lay3rlabs/conditional-tokens-contracts/ConditionalTokens.sol";
+import {CTHelpers} from "@lay3rlabs/conditional-tokens-contracts/CTHelpers.sol";
+import {ConstructedCloneFactory} from "./ConstructedCloneFactory.sol";
+import {LMSRMarketMaker} from "./LMSRMarketMaker.sol";
+import {Whitelist} from "./Whitelist.sol";
+import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
 
 contract LMSRMarketMakerData {
     address internal _owner;
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     bytes4 internal constant _INTERFACE_ID_ERC165 = 0x01ffc9a7;
     mapping(bytes4 => bool) internal _supportedInterfaces;
 
+    uint64 constant FEE_RANGE = 10 ** 18;
 
-    uint64 constant FEE_RANGE = 10**18;
-    event AMMCreated(uint initialFunding);
+    event AMMCreated(uint256 initialFunding);
+
     ConditionalTokens internal pmSystem;
     IERC20 internal collateralToken;
     bytes32[] internal conditionIds;
-    uint internal atomicOutcomeSlotCount;
+    uint256 internal atomicOutcomeSlotCount;
     uint64 internal fee;
-    uint internal funding;
+    uint256 internal funding;
     Stage internal stage;
     Whitelist internal whitelist;
 
-    uint[] internal outcomeSlotCounts;
+    uint256[] internal outcomeSlotCounts;
     bytes32[][] internal collectionIds;
-    uint[] internal positionIds;
+    uint256[] internal positionIds;
 
     enum Stage {
         Running,
@@ -41,15 +42,23 @@ contract LMSRMarketMakerData {
 }
 
 contract LMSRMarketMakerFactory is ConstructedCloneFactory, LMSRMarketMakerData {
-    event LMSRMarketMakerCreation(address indexed creator, LMSRMarketMaker lmsrMarketMaker, ConditionalTokens pmSystem, IERC20 collateralToken, bytes32[] conditionIds, uint64 fee, uint funding);
+    event LMSRMarketMakerCreation(
+        address indexed creator,
+        LMSRMarketMaker lmsrMarketMaker,
+        ConditionalTokens pmSystem,
+        IERC20 collateralToken,
+        bytes32[] conditionIds,
+        uint64 fee,
+        uint256 funding
+    );
 
     LMSRMarketMaker public implementationMaster;
 
-    constructor() public {
-        implementationMaster = new LMSRMarketMaker();
+    constructor() {
+        implementationMaster = new LMSRMarketMaker(address(this));
     }
 
-    function cloneConstructor(bytes calldata consData) external {
+    function cloneConstructor(bytes calldata consData) external override {
         (
             ConditionalTokens _pmSystem,
             IERC20 _collateralToken,
@@ -62,10 +71,8 @@ contract LMSRMarketMakerFactory is ConstructedCloneFactory, LMSRMarketMakerData 
         emit OwnershipTransferred(address(0), _owner);
 
         _supportedInterfaces[_INTERFACE_ID_ERC165] = true;
-        _supportedInterfaces[
-            ERC1155TokenReceiver(0).onERC1155Received.selector ^
-            ERC1155TokenReceiver(0).onERC1155BatchReceived.selector
-        ] = true;
+        _supportedInterfaces[IERC1155Receiver(address(0)).onERC1155Received.selector
+            ^ IERC1155Receiver(address(0)).onERC1155BatchReceived.selector] = true;
 
         // Validate inputs
         require(address(_pmSystem) != address(0) && _fee < FEE_RANGE);
@@ -76,9 +83,9 @@ contract LMSRMarketMakerFactory is ConstructedCloneFactory, LMSRMarketMakerData 
         whitelist = _whitelist;
 
         atomicOutcomeSlotCount = 1;
-        outcomeSlotCounts = new uint[](conditionIds.length);
-        for (uint i = 0; i < conditionIds.length; i++) {
-            uint outcomeSlotCount = pmSystem.getOutcomeSlotCount(conditionIds[i]);
+        outcomeSlotCounts = new uint256[](conditionIds.length);
+        for (uint256 i = 0; i < conditionIds.length; i++) {
+            uint256 outcomeSlotCount = pmSystem.getOutcomeSlotCount(conditionIds[i]);
             atomicOutcomeSlotCount *= outcomeSlotCount;
             outcomeSlotCounts[i] = outcomeSlotCount;
         }
@@ -91,37 +98,40 @@ contract LMSRMarketMakerFactory is ConstructedCloneFactory, LMSRMarketMakerData 
         emit AMMCreated(funding);
     }
 
-    function _recordCollectionIDsForAllConditions(uint conditionsLeft, bytes32 parentCollectionId) private {
-        if(conditionsLeft == 0) {
+    function _recordCollectionIDsForAllConditions(uint256 conditionsLeft, bytes32 parentCollectionId) private {
+        if (conditionsLeft == 0) {
             positionIds.push(CTHelpers.getPositionId(collateralToken, parentCollectionId));
             return;
         }
 
         conditionsLeft--;
 
-        uint outcomeSlotCount = outcomeSlotCounts[conditionsLeft];
+        uint256 outcomeSlotCount = outcomeSlotCounts[conditionsLeft];
 
         collectionIds[conditionsLeft].push(parentCollectionId);
-        for(uint i = 0; i < outcomeSlotCount; i++) {
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
             _recordCollectionIDsForAllConditions(
-                conditionsLeft,
-                CTHelpers.getCollectionId(
-                    parentCollectionId,
-                    conditionIds[conditionsLeft],
-                    1 << i
-                )
+                conditionsLeft, CTHelpers.getCollectionId(parentCollectionId, conditionIds[conditionsLeft], 1 << i)
             );
         }
     }
 
-    function createLMSRMarketMaker(ConditionalTokens pmSystem, IERC20 collateralToken, bytes32[] calldata conditionIds, uint64 fee, Whitelist whitelist, uint funding)
-        external
-        returns (LMSRMarketMaker lmsrMarketMaker)
-    {
-        lmsrMarketMaker = LMSRMarketMaker(createClone(address(implementationMaster), abi.encode(pmSystem, collateralToken, conditionIds, fee, whitelist)));
+    function createLMSRMarketMaker(
+        ConditionalTokens pmSystem,
+        IERC20 collateralToken,
+        bytes32[] calldata conditionIds,
+        uint64 fee,
+        Whitelist whitelist,
+        uint256 funding
+    ) external returns (LMSRMarketMaker lmsrMarketMaker) {
+        lmsrMarketMaker = LMSRMarketMaker(
+            createClone(
+                address(implementationMaster), abi.encode(pmSystem, collateralToken, conditionIds, fee, whitelist)
+            )
+        );
         collateralToken.transferFrom(msg.sender, address(this), funding);
         collateralToken.approve(address(lmsrMarketMaker), funding);
-        lmsrMarketMaker.changeFunding(int(funding));
+        lmsrMarketMaker.changeFunding(int256(funding));
         lmsrMarketMaker.resume();
         lmsrMarketMaker.transferOwnership(msg.sender);
         emit LMSRMarketMakerCreation(msg.sender, lmsrMarketMaker, pmSystem, collateralToken, conditionIds, fee, funding);

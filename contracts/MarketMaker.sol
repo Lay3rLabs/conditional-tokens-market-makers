@@ -1,50 +1,48 @@
 // SPDX-License-Identifier: LGPL-3.0
 pragma solidity ^0.8.22;
 
-import { Ownable } from "openzeppelin-solidity/contracts/ownership/Ownable.sol";
-import { IERC20 } from "openzeppelin-solidity/contracts/token/ERC20/IERC20.sol";
-import { SafeMath } from "openzeppelin-solidity/contracts/math/SafeMath.sol";
-import { SignedSafeMath } from "@gnosis.pm/util-contracts/contracts/SignedSafeMath.sol";
-import { ERC1155TokenReceiver } from "@gnosis.pm/conditional-tokens-contracts/contracts/ERC1155/ERC1155TokenReceiver.sol";
-import { CTHelpers } from "@gnosis.pm/conditional-tokens-contracts/contracts/CTHelpers.sol";
-import { ConditionalTokens } from "@gnosis.pm/conditional-tokens-contracts/contracts/ConditionalTokens.sol";
-import { Whitelist } from "./Whitelist.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
+import {CTHelpers} from "@lay3rlabs/conditional-tokens-contracts/CTHelpers.sol";
+import {ConditionalTokens} from "@lay3rlabs/conditional-tokens-contracts/ConditionalTokens.sol";
+import {Whitelist} from "./Whitelist.sol";
 
-contract MarketMaker is Ownable, ERC1155TokenReceiver {
-    using SignedSafeMath for int;
-    using SafeMath for uint;
+abstract contract MarketMaker is Ownable, IERC1155Receiver {
     /*
      *  Constants
-     */    
-    uint64 public constant FEE_RANGE = 10**18;
+     */
+    uint64 public constant FEE_RANGE = 10 ** 18;
 
     /*
      *  Events
      */
-    event AMMCreated(uint initialFunding);
+    event AMMCreated(uint256 initialFunding);
     event AMMPaused();
     event AMMResumed();
     event AMMClosed();
-    event AMMFundingChanged(int fundingChange);
+    event AMMFundingChanged(int256 fundingChange);
     event AMMFeeChanged(uint64 newFee);
-    event AMMFeeWithdrawal(uint fees);
-    event AMMOutcomeTokenTrade(address indexed transactor, int[] outcomeTokenAmounts, int outcomeTokenNetCost, uint marketFees);
-    
+    event AMMFeeWithdrawal(uint256 fees);
+    event AMMOutcomeTokenTrade(
+        address indexed transactor, int256[] outcomeTokenAmounts, int256 outcomeTokenNetCost, uint256 marketFees
+    );
+
     /*
      *  Storage
      */
     ConditionalTokens public pmSystem;
     IERC20 public collateralToken;
     bytes32[] public conditionIds;
-    uint public atomicOutcomeSlotCount;
+    uint256 public atomicOutcomeSlotCount;
     uint64 public fee;
-    uint public funding;
+    uint256 public funding;
     Stage public stage;
     Whitelist public whitelist;
 
-    uint[] outcomeSlotCounts;
+    uint256[] outcomeSlotCounts;
     bytes32[][] collectionIds;
-    uint[] positionIds;
+    uint256[] positionIds;
 
     enum Stage {
         Running,
@@ -63,33 +61,38 @@ contract MarketMaker is Ownable, ERC1155TokenReceiver {
 
     modifier onlyWhitelisted() {
         require(
-            whitelist == Whitelist(0) || whitelist.isWhitelisted(msg.sender),
+            whitelist == Whitelist(address(0)) || whitelist.isWhitelisted(msg.sender),
             "only whitelisted users may call this function"
         );
         _;
     }
 
-    function calcNetCost(int[] memory outcomeTokenAmounts) public view returns (int netCost);
+    constructor(address initialOwner) Ownable(initialOwner) {}
+
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+        return interfaceId == type(IERC1155Receiver).interfaceId;
+    }
+
+    function calcNetCost(int256[] memory outcomeTokenAmounts) public view virtual returns (int256 netCost);
 
     /// @dev Allows to fund the market with collateral tokens converting them into outcome tokens
     /// Note for the future: should combine splitPosition and mergePositions into one function, as code duplication causes things like this to happen.
-    function changeFunding(int fundingChange)
-        public
-        onlyOwner
-        atStage(Stage.Paused)
-    {
+    function changeFunding(int256 fundingChange) public onlyOwner atStage(Stage.Paused) {
         require(fundingChange != 0, "funding change must be non-zero");
         // Either add or subtract funding based off whether the fundingChange parameter is negative or positive
         if (fundingChange > 0) {
-            require(collateralToken.transferFrom(msg.sender, address(this), uint(fundingChange)) && collateralToken.approve(address(pmSystem), uint(fundingChange)));
-            splitPositionThroughAllConditions(uint(fundingChange));
-            funding = funding.add(uint(fundingChange));
+            require(
+                collateralToken.transferFrom(msg.sender, address(this), uint256(fundingChange))
+                    && collateralToken.approve(address(pmSystem), uint256(fundingChange))
+            );
+            splitPositionThroughAllConditions(uint256(fundingChange));
+            funding += uint256(fundingChange);
             emit AMMFundingChanged(fundingChange);
         }
         if (fundingChange < 0) {
-            mergePositionsThroughAllConditions(uint(-fundingChange));
-            funding = funding.sub(uint(-fundingChange));
-            require(collateralToken.transfer(owner(), uint(-fundingChange)));
+            mergePositionsThroughAllConditions(uint256(-fundingChange));
+            funding -= uint256(-fundingChange);
+            require(collateralToken.transfer(owner(), uint256(-fundingChange)));
             emit AMMFundingChanged(fundingChange);
         }
     }
@@ -98,7 +101,7 @@ contract MarketMaker is Ownable, ERC1155TokenReceiver {
         stage = Stage.Paused;
         emit AMMPaused();
     }
-    
+
     function resume() public onlyOwner atStage(Stage.Paused) {
         stage = Stage.Running;
         emit AMMResumed();
@@ -110,26 +113,21 @@ contract MarketMaker is Ownable, ERC1155TokenReceiver {
     }
 
     /// @dev Allows market owner to close the markets by transferring all remaining outcome tokens to the owner
-    function close()
-        public
-        onlyOwner
-    {
+    function close() public onlyOwner {
         require(stage == Stage.Running || stage == Stage.Paused, "This Market has already been closed");
-        for (uint i = 0; i < atomicOutcomeSlotCount; i++) {
-            uint positionId = generateAtomicPositionId(i);
-            pmSystem.safeTransferFrom(address(this), owner(), positionId, pmSystem.balanceOf(address(this), positionId), "");
+        for (uint256 i = 0; i < atomicOutcomeSlotCount; i++) {
+            uint256 positionId = generateAtomicPositionId(i);
+            pmSystem.safeTransferFrom(
+                address(this), owner(), positionId, pmSystem.balanceOf(address(this), positionId), ""
+            );
         }
         stage = Stage.Closed;
         emit AMMClosed();
     }
 
     /// @dev Allows market owner to withdraw fees generated by trades
-    /// @return Fee amount
-    function withdrawFees()
-        public
-        onlyOwner
-        returns (uint fees)
-    {
+    /// @return fees Fee amount
+    function withdrawFees() public onlyOwner returns (uint256 fees) {
         fees = collateralToken.balanceOf(address(this));
         // Transfer fees
         require(collateralToken.transfer(owner(), fees));
@@ -158,136 +156,134 @@ contract MarketMaker is Ownable, ERC1155TokenReceiver {
     /// C&Y&K == 17
     /// This order is calculated via the generateAtomicPositionId function below: C&Y&I -> (2, 1, 0) -> 2 + 3 * (1 + 2 * (0 + 3 * (0 + 0)))
     /// @param collateralLimit If positive, this is the limit for the amount of collateral tokens which will be sent to the market to conduct the trade. If negative, this is the minimum amount of collateral tokens which will be received from the market for the trade. If zero, there is no limit.
-    /// @return If positive, the amount of collateral sent to the market. If negative, the amount of collateral received from the market. If zero, no collateral was sent or received.
-    function trade(int[] memory outcomeTokenAmounts, int collateralLimit)
+    /// @return netCost If positive, the amount of collateral sent to the market. If negative, the amount of collateral received from the market. If zero, no collateral was sent or received.
+    function trade(int256[] memory outcomeTokenAmounts, int256 collateralLimit)
         public
         atStage(Stage.Running)
         onlyWhitelisted
-        returns (int netCost)
+        returns (int256 netCost)
     {
         require(outcomeTokenAmounts.length == atomicOutcomeSlotCount);
 
         // Calculate net cost for executing trade
-        int outcomeTokenNetCost = calcNetCost(outcomeTokenAmounts);
-        int fees;
-        if(outcomeTokenNetCost < 0)
-            fees = int(calcMarketFee(uint(-outcomeTokenNetCost)));
-        else
-            fees = int(calcMarketFee(uint(outcomeTokenNetCost)));
+        int256 outcomeTokenNetCost = calcNetCost(outcomeTokenAmounts);
+        int256 fees;
+        if (outcomeTokenNetCost < 0) {
+            fees = int256(calcMarketFee(uint256(-outcomeTokenNetCost)));
+        } else {
+            fees = int256(calcMarketFee(uint256(outcomeTokenNetCost)));
+        }
 
         require(fees >= 0);
-        netCost = outcomeTokenNetCost.add(fees);
+        netCost = outcomeTokenNetCost + fees;
 
-        require(
-            (collateralLimit != 0 && netCost <= collateralLimit) ||
-            collateralLimit == 0
-        );
+        require((collateralLimit != 0 && netCost <= collateralLimit) || collateralLimit == 0);
 
-        if(outcomeTokenNetCost > 0) {
+        if (outcomeTokenNetCost > 0) {
             require(
-                collateralToken.transferFrom(msg.sender, address(this), uint(netCost)) &&
-                collateralToken.approve(address(pmSystem), uint(outcomeTokenNetCost))
+                collateralToken.transferFrom(msg.sender, address(this), uint256(netCost))
+                    && collateralToken.approve(address(pmSystem), uint256(outcomeTokenNetCost))
             );
 
-            splitPositionThroughAllConditions(uint(outcomeTokenNetCost));
+            splitPositionThroughAllConditions(uint256(outcomeTokenNetCost));
         }
 
         bool touched = false;
-        uint[] memory transferAmounts = new uint[](atomicOutcomeSlotCount);
-        for (uint i = 0; i < atomicOutcomeSlotCount; i++) {
-            if(outcomeTokenAmounts[i] < 0) {
+        uint256[] memory transferAmounts = new uint256[](atomicOutcomeSlotCount);
+        for (uint256 i = 0; i < atomicOutcomeSlotCount; i++) {
+            if (outcomeTokenAmounts[i] < 0) {
                 touched = true;
                 // This is safe since
                 // 0x8000000000000000000000000000000000000000000000000000000000000000 ==
                 // uint(-int(-0x8000000000000000000000000000000000000000000000000000000000000000))
-                transferAmounts[i] = uint(-outcomeTokenAmounts[i]);
+                transferAmounts[i] = uint256(-outcomeTokenAmounts[i]);
             }
         }
-        if(touched) pmSystem.safeBatchTransferFrom(msg.sender, address(this), positionIds, transferAmounts, "");
-
-        if(outcomeTokenNetCost < 0) {
-            mergePositionsThroughAllConditions(uint(-outcomeTokenNetCost));
+        if (touched) {
+            pmSystem.safeBatchTransferFrom(msg.sender, address(this), positionIds, transferAmounts, "");
         }
 
-        emit AMMOutcomeTokenTrade(msg.sender, outcomeTokenAmounts, outcomeTokenNetCost, uint(fees));
+        if (outcomeTokenNetCost < 0) {
+            mergePositionsThroughAllConditions(uint256(-outcomeTokenNetCost));
+        }
+
+        emit AMMOutcomeTokenTrade(msg.sender, outcomeTokenAmounts, outcomeTokenNetCost, uint256(fees));
 
         touched = false;
-        for (uint i = 0; i < atomicOutcomeSlotCount; i++) {
-            if(outcomeTokenAmounts[i] > 0) {
+        for (uint256 i = 0; i < atomicOutcomeSlotCount; i++) {
+            if (outcomeTokenAmounts[i] > 0) {
                 touched = true;
-                transferAmounts[i] = uint(outcomeTokenAmounts[i]);
+                transferAmounts[i] = uint256(outcomeTokenAmounts[i]);
             } else {
                 transferAmounts[i] = 0;
             }
         }
-        if(touched) pmSystem.safeBatchTransferFrom(address(this), msg.sender, positionIds, transferAmounts, "");
+        if (touched) {
+            pmSystem.safeBatchTransferFrom(address(this), msg.sender, positionIds, transferAmounts, "");
+        }
 
-        if(netCost < 0) {
-            require(collateralToken.transfer(msg.sender, uint(-netCost)));
+        if (netCost < 0) {
+            require(collateralToken.transfer(msg.sender, uint256(-netCost)));
         }
     }
 
     /// @dev Calculates fee to be paid to market maker
     /// @param outcomeTokenCost Cost for buying outcome tokens
     /// @return Fee for trade
-    function calcMarketFee(uint outcomeTokenCost)
-        public
-        view
-        returns (uint)
-    {
-        return outcomeTokenCost * fee / FEE_RANGE;
+    function calcMarketFee(uint256 outcomeTokenCost) public view returns (uint256) {
+        return (outcomeTokenCost * fee) / FEE_RANGE;
     }
 
-    function onERC1155Received(address operator, address /*from*/, uint256 /*id*/, uint256 /*value*/, bytes calldata /*data*/) external returns(bytes4) {
+    function onERC1155Received(
+        address operator,
+        address, /*from*/
+        uint256, /*id*/
+        uint256, /*value*/
+        bytes calldata /*data*/
+    ) public view returns (bytes4) {
         if (operator == address(this)) {
             return this.onERC1155Received.selector;
         }
         return 0x0;
     }
 
-    function onERC1155BatchReceived(address _operator, address /*from*/, uint256[] calldata /*ids*/, uint256[] calldata /*values*/, bytes calldata /*data*/) external returns(bytes4) {
+    function onERC1155BatchReceived(
+        address _operator,
+        address, /*from*/
+        uint256[] calldata, /*ids*/
+        uint256[] calldata, /*values*/
+        bytes calldata /*data*/
+    ) public view returns (bytes4) {
         if (_operator == address(this)) {
             return this.onERC1155BatchReceived.selector;
         }
         return 0x0;
     }
 
-    function generateBasicPartition(uint outcomeSlotCount)
-        private
-        pure
-        returns (uint[] memory partition)
-    {
-        partition = new uint[](outcomeSlotCount);
-        for(uint i = 0; i < outcomeSlotCount; i++) {
+    function generateBasicPartition(uint256 outcomeSlotCount) private pure returns (uint256[] memory partition) {
+        partition = new uint256[](outcomeSlotCount);
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
             partition[i] = 1 << i;
         }
     }
 
-    function generateAtomicPositionId(uint i)
-        internal
-        view
-        returns (uint)
-    {
+    function generateAtomicPositionId(uint256 i) internal view returns (uint256) {
         return positionIds[i];
     }
 
-    function splitPositionThroughAllConditions(uint amount)
-        private
-    {
-        for(uint i = conditionIds.length - 1; int(i) >= 0; i--) {
-            uint[] memory partition = generateBasicPartition(outcomeSlotCounts[i]);
-            for(uint j = 0; j < collectionIds[i].length; j++) {
+    function splitPositionThroughAllConditions(uint256 amount) private {
+        for (uint256 i = conditionIds.length - 1; int256(i) >= 0; i--) {
+            uint256[] memory partition = generateBasicPartition(outcomeSlotCounts[i]);
+            for (uint256 j = 0; j < collectionIds[i].length; j++) {
                 pmSystem.splitPosition(collateralToken, collectionIds[i][j], conditionIds[i], partition, amount);
             }
         }
     }
 
-    function mergePositionsThroughAllConditions(uint amount)
-        private
-    {
-        for(uint i = 0; i < conditionIds.length; i++) {
-            uint[] memory partition = generateBasicPartition(outcomeSlotCounts[i]);
-            for(uint j = 0; j < collectionIds[i].length; j++) {
+    function mergePositionsThroughAllConditions(uint256 amount) private {
+        for (uint256 i = 0; i < conditionIds.length; i++) {
+            uint256[] memory partition = generateBasicPartition(outcomeSlotCounts[i]);
+            for (uint256 j = 0; j < collectionIds[i].length; j++) {
                 pmSystem.mergePositions(collateralToken, collectionIds[i][j], conditionIds[i], partition, amount);
             }
         }
