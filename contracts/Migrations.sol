@@ -1,9 +1,5 @@
-pragma solidity ^0.5.1;
-
-// HACK: should be removed along with the hack-ey migration
-// when https://github.com/trufflesuite/truffle/pull/1085 hits
-import "canonical-weth/contracts/WETH9.sol";
-
+// SPDX-License-Identifier: LGPL-3.0
+pragma solidity ^0.8.22;
 
 contract Migrations {
     address public owner;

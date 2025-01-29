@@ -1,4 +1,5 @@
-pragma solidity ^0.5.1;
+// SPDX-License-Identifier: LGPL-3.0
+pragma solidity ^0.8.22;
 
 import 'openzeppelin-solidity/contracts/ownership/Ownable.sol'; 
 
