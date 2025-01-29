@@ -1,0 +1,8 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solidity_version = "0.8.22"
+evm_version = "shanghai"
+# max gas limit
+# gas_limit = 100_000_000_000
