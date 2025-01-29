@@ -7,3 +7,6 @@
 [submodule "lib/openzeppelin-foundry-upgrades"]
 	path = lib/openzeppelin-foundry-upgrades
 	url = https://github.com/OpenZeppelin/openzeppelin-foundry-upgrades
+[submodule "lib/conditional-tokens-contracts"]
+	path = lib/conditional-tokens-contracts
+	url = https://github.com/Lay3rLabs/conditional-tokens-contracts
