@@ -32,16 +32,8 @@ contract LMSRMarketMakerFactory {
         Whitelist whitelist,
         uint256 funding
     ) external returns (LMSRMarketMaker lmsrMarketMaker) {
-        lmsrMarketMaker = LMSRMarketMaker(
-            Clones.clone(address(implementationMaster))
-        );
-        lmsrMarketMaker.initialize(
-            pmSystem,
-            collateralToken,
-            conditionIds,
-            fee,
-            whitelist
-        );
+        lmsrMarketMaker = LMSRMarketMaker(Clones.clone(address(implementationMaster)));
+        lmsrMarketMaker.initialize(pmSystem, collateralToken, conditionIds, fee, whitelist);
 
         // Transfer funding to this factory
         collateralToken.transferFrom(msg.sender, address(this), funding);
@@ -55,14 +47,6 @@ contract LMSRMarketMakerFactory {
         // Resume the market maker
         lmsrMarketMaker.resume();
 
-        emit LMSRMarketMakerCreation(
-            msg.sender,
-            lmsrMarketMaker,
-            pmSystem,
-            collateralToken,
-            conditionIds,
-            fee,
-            funding
-        );
+        emit LMSRMarketMakerCreation(msg.sender, lmsrMarketMaker, pmSystem, collateralToken, conditionIds, fee, funding);
     }
 }

@@ -30,23 +30,11 @@ contract FixedProductMarketMakerFactory {
         bytes32[] calldata conditionIds,
         uint256 fee
     ) external returns (FixedProductMarketMaker fixedProductMarketMaker) {
-        fixedProductMarketMaker = FixedProductMarketMaker(
-            Clones.clone(address(implementationMaster))
-        );
-        fixedProductMarketMaker.initialize(
-            conditionalTokens,
-            collateralToken,
-            conditionIds,
-            fee
-        );
+        fixedProductMarketMaker = FixedProductMarketMaker(Clones.clone(address(implementationMaster)));
+        fixedProductMarketMaker.initialize(conditionalTokens, collateralToken, conditionIds, fee);
 
         emit FixedProductMarketMakerCreation(
-            msg.sender,
-            fixedProductMarketMaker,
-            conditionalTokens,
-            collateralToken,
-            conditionIds,
-            fee
+            msg.sender, fixedProductMarketMaker, conditionalTokens, collateralToken, conditionIds, fee
         );
     }
 }

@@ -272,10 +272,12 @@ abstract contract MarketMaker is Ownable, IERC1155Receiver {
     }
 
     function splitPositionThroughAllConditions(uint256 amount) private {
-        for (uint256 i = conditionIds.length - 1; int256(i) >= 0; i--) {
-            uint256[] memory partition = generateBasicPartition(outcomeSlotCounts[i]);
-            for (uint256 j = 0; j < collectionIds[i].length; j++) {
-                pmSystem.splitPosition(collateralToken, collectionIds[i][j], conditionIds[i], partition, amount);
+        for (int256 i = int256(conditionIds.length - 1); i >= 0; i--) {
+            uint256[] memory partition = generateBasicPartition(outcomeSlotCounts[uint256(i)]);
+            for (uint256 j = 0; j < collectionIds[uint256(i)].length; j++) {
+                pmSystem.splitPosition(
+                    collateralToken, collectionIds[uint256(i)][j], conditionIds[uint256(i)], partition, amount
+                );
             }
         }
     }
