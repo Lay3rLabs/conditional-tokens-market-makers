@@ -4,11 +4,11 @@ pragma solidity ^0.8.22;
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {ConditionalTokens} from "@lay3rlabs/conditional-tokens-contracts/ConditionalTokens.sol";
 import {CTHelpers} from "@lay3rlabs/conditional-tokens-contracts/CTHelpers.sol";
-import {Create2CloneFactory} from "./Create2CloneFactory.sol";
-import {FixedProductMarketMaker, FixedProductMarketMakerData} from "./FixedProductMarketMaker.sol";
+import {FixedProductMarketMaker} from "./FixedProductMarketMaker.sol";
 import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
-contract FPMMDeterministicFactory is Create2CloneFactory, FixedProductMarketMakerData, IERC1155Receiver {
+contract FPMMDeterministicFactory is IERC1155Receiver {
     event FixedProductMarketMakerCreation(
         address indexed creator,
         FixedProductMarketMaker fixedProductMarketMaker,
@@ -25,100 +25,99 @@ contract FPMMDeterministicFactory is Create2CloneFactory, FixedProductMarketMake
         implementationMaster = new FixedProductMarketMaker();
     }
 
-    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+    function supportsInterface(
+        bytes4 interfaceId
+    ) external pure returns (bool) {
         return interfaceId == type(IERC1155Receiver).interfaceId;
     }
 
-    function cloneConstructor(bytes calldata consData) external override {
-        (ConditionalTokens _conditionalTokens, IERC20 _collateralToken, bytes32[] memory _conditionIds, uint256 _fee) =
-            abi.decode(consData, (ConditionalTokens, IERC20, bytes32[], uint256));
-
-        _supportedInterfaces[_INTERFACE_ID_ERC165] = true;
-        _supportedInterfaces[IERC1155Receiver(address(0)).onERC1155Received.selector
-            ^ IERC1155Receiver(address(0)).onERC1155BatchReceived.selector] = true;
-
-        conditionalTokens = _conditionalTokens;
-        collateralToken = _collateralToken;
-        conditionIds = _conditionIds;
-        fee = _fee;
-
-        uint256 atomicOutcomeSlotCount = 1;
-        outcomeSlotCounts = new uint256[](conditionIds.length);
-        for (uint256 i = 0; i < conditionIds.length; i++) {
-            uint256 outcomeSlotCount = conditionalTokens.getOutcomeSlotCount(conditionIds[i]);
-            atomicOutcomeSlotCount *= outcomeSlotCount;
-            outcomeSlotCounts[i] = outcomeSlotCount;
-        }
-        require(atomicOutcomeSlotCount > 1, "conditions must be valid");
-
-        collectionIds = new bytes32[][](conditionIds.length);
-        _recordCollectionIDsForAllConditions(conditionIds.length, bytes32(0));
-        require(positionIds.length == atomicOutcomeSlotCount, "position IDs construction failed!?");
-    }
-
-    function _recordCollectionIDsForAllConditions(uint256 conditionsLeft, bytes32 parentCollectionId) private {
-        if (conditionsLeft == 0) {
-            positionIds.push(CTHelpers.getPositionId(collateralToken, parentCollectionId));
-            return;
-        }
-
-        conditionsLeft--;
-
-        uint256 outcomeSlotCount = outcomeSlotCounts[conditionsLeft];
-
-        collectionIds[conditionsLeft].push(parentCollectionId);
-        for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            _recordCollectionIDsForAllConditions(
-                conditionsLeft, CTHelpers.getCollectionId(parentCollectionId, conditionIds[conditionsLeft], 1 << i)
-            );
-        }
-    }
-
-    function onERC1155Received(address operator, address from, uint256 id, uint256 value, bytes calldata data)
-        external
-        returns (bytes4)
-    {
-        ConditionalTokens(msg.sender).safeTransferFrom(address(this), currentFunder, id, value, data);
+    function onERC1155Received(
+        address,
+        address,
+        uint256 id,
+        uint256 value,
+        bytes calldata data
+    ) external returns (bytes4) {
+        ConditionalTokens(msg.sender).safeTransferFrom(
+            address(this),
+            currentFunder,
+            id,
+            value,
+            data
+        );
         return this.onERC1155Received.selector;
     }
 
     function onERC1155BatchReceived(
-        address operator,
-        address from,
+        address,
+        address,
         uint256[] calldata ids,
         uint256[] calldata values,
         bytes calldata data
     ) external returns (bytes4) {
-        ConditionalTokens(msg.sender).safeBatchTransferFrom(address(this), currentFunder, ids, values, data);
+        ConditionalTokens(msg.sender).safeBatchTransferFrom(
+            address(this),
+            currentFunder,
+            ids,
+            values,
+            data
+        );
         return this.onERC1155BatchReceived.selector;
     }
 
     function create2FixedProductMarketMaker(
-        uint256 saltNonce,
+        bytes32 salt,
         ConditionalTokens conditionalTokens,
         IERC20 collateralToken,
         bytes32[] calldata conditionIds,
         uint256 fee,
         uint256 initialFunds,
         uint256[] calldata distributionHint
-    ) external returns (FixedProductMarketMaker) {
-        FixedProductMarketMaker fixedProductMarketMaker = FixedProductMarketMaker(
-            create2Clone(
-                address(implementationMaster),
-                saltNonce,
-                abi.encode(conditionalTokens, collateralToken, conditionIds, fee)
-            )
+    ) external returns (FixedProductMarketMaker fixedProductMarketMaker) {
+        fixedProductMarketMaker = FixedProductMarketMaker(
+            Clones.cloneDeterministic(address(implementationMaster), salt)
         );
+        fixedProductMarketMaker.initialize(
+            conditionalTokens,
+            collateralToken,
+            conditionIds,
+            fee
+        );
+
         emit FixedProductMarketMakerCreation(
-            msg.sender, fixedProductMarketMaker, conditionalTokens, collateralToken, conditionIds, fee
+            msg.sender,
+            fixedProductMarketMaker,
+            conditionalTokens,
+            collateralToken,
+            conditionIds,
+            fee
         );
 
         if (initialFunds > 0) {
             currentFunder = msg.sender;
-            collateralToken.transferFrom(msg.sender, address(this), initialFunds);
-            collateralToken.approve(address(fixedProductMarketMaker), initialFunds);
+
+            // Transfer funding to this factory
+            collateralToken.transferFrom(
+                msg.sender,
+                address(this),
+                initialFunds
+            );
+
+            // Approve the market maker to spend the funding from this factory
+            collateralToken.approve(
+                address(fixedProductMarketMaker),
+                initialFunds
+            );
+
+            // Add funding to the market maker, which will spend the funds from this factory
             fixedProductMarketMaker.addFunding(initialFunds, distributionHint);
-            fixedProductMarketMaker.transfer(msg.sender, fixedProductMarketMaker.balanceOf(address(this)));
+
+            // Transfer the outcome tokens to the creator
+            fixedProductMarketMaker.transfer(
+                msg.sender,
+                fixedProductMarketMaker.balanceOf(address(this))
+            );
+
             currentFunder = address(0);
         }
 

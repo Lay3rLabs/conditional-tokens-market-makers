@@ -3,10 +3,16 @@ pragma solidity ^0.8.22;
 
 import {Fixed192x64Math} from "./Fixed192x64Math.sol";
 import {MarketMaker} from "./MarketMaker.sol";
+import {Whitelist} from "./Whitelist.sol";
+import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {ConditionalTokens} from "@lay3rlabs/conditional-tokens-contracts/ConditionalTokens.sol";
+import {CTHelpers} from "@lay3rlabs/conditional-tokens-contracts/CTHelpers.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 
 /// @title LMSR market maker contract - Calculates share prices based on share distribution and initial funding
 /// @author Alan Lu - <alan.lu@gnosis.pm>
-contract LMSRMarketMaker is MarketMaker {
+contract LMSRMarketMaker is Initializable, MarketMaker {
     /*
      *  Constants
      */
@@ -15,24 +21,101 @@ contract LMSRMarketMaker is MarketMaker {
 
     constructor(address initialOwner) MarketMaker(initialOwner) {}
 
+    function initialize(
+        ConditionalTokens _pmSystem,
+        IERC20 _collateralToken,
+        bytes32[] memory _conditionIds,
+        uint64 _fee,
+        Whitelist _whitelist
+    ) public initializer {
+        transferOwnership(msg.sender);
+
+        // Validate inputs
+        require(address(_pmSystem) != address(0) && _fee < FEE_RANGE);
+        pmSystem = _pmSystem;
+        collateralToken = _collateralToken;
+        conditionIds = _conditionIds;
+        fee = _fee;
+        whitelist = _whitelist;
+
+        atomicOutcomeSlotCount = 1;
+        outcomeSlotCounts = new uint256[](conditionIds.length);
+        for (uint256 i = 0; i < conditionIds.length; i++) {
+            uint256 outcomeSlotCount = pmSystem.getOutcomeSlotCount(
+                conditionIds[i]
+            );
+            atomicOutcomeSlotCount *= outcomeSlotCount;
+            outcomeSlotCounts[i] = outcomeSlotCount;
+        }
+        require(atomicOutcomeSlotCount > 1, "conditions must be valid");
+
+        collectionIds = new bytes32[][](conditionIds.length);
+        _recordCollectionIDsForAllConditions(conditionIds.length, bytes32(0));
+
+        stage = Stage.Paused;
+        emit AMMCreated(funding);
+    }
+
+    function _recordCollectionIDsForAllConditions(
+        uint256 conditionsLeft,
+        bytes32 parentCollectionId
+    ) private {
+        if (conditionsLeft == 0) {
+            positionIds.push(
+                CTHelpers.getPositionId(collateralToken, parentCollectionId)
+            );
+            return;
+        }
+
+        conditionsLeft--;
+
+        uint256 outcomeSlotCount = outcomeSlotCounts[conditionsLeft];
+
+        collectionIds[conditionsLeft].push(parentCollectionId);
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            _recordCollectionIDsForAllConditions(
+                conditionsLeft,
+                CTHelpers.getCollectionId(
+                    parentCollectionId,
+                    conditionIds[conditionsLeft],
+                    1 << i
+                )
+            );
+        }
+    }
+
     /// @dev Calculates the net cost for executing a given trade.
     /// @param outcomeTokenAmounts Amounts of outcome tokens to buy from the market. If an amount is negative, represents an amount to sell to the market.
     /// @return netCost Net cost of trade. If positive, represents amount of collateral which would be paid to the market for the trade. If negative, represents amount of collateral which would be received from the market for the trade.
-    function calcNetCost(int256[] memory outcomeTokenAmounts) public view override returns (int256 netCost) {
+    function calcNetCost(
+        int256[] memory outcomeTokenAmounts
+    ) public view override returns (int256 netCost) {
         require(outcomeTokenAmounts.length == atomicOutcomeSlotCount);
 
         int256[] memory otExpNums = new int256[](atomicOutcomeSlotCount);
         for (uint256 i = 0; i < atomicOutcomeSlotCount; i++) {
-            int256 balance = int256(pmSystem.balanceOf(address(this), generateAtomicPositionId(i)));
+            int256 balance = int256(
+                pmSystem.balanceOf(address(this), generateAtomicPositionId(i))
+            );
             require(balance >= 0);
             otExpNums[i] = outcomeTokenAmounts[i] - balance;
         }
 
-        int256 log2N =
-            Fixed192x64Math.binaryLog(atomicOutcomeSlotCount * ONE, Fixed192x64Math.EstimationMode.UpperBound);
+        int256 log2N = Fixed192x64Math.binaryLog(
+            atomicOutcomeSlotCount * ONE,
+            Fixed192x64Math.EstimationMode.UpperBound
+        );
 
-        (uint256 sum, int256 offset,) = sumExpOffset(log2N, otExpNums, 0, Fixed192x64Math.EstimationMode.UpperBound);
-        netCost = Fixed192x64Math.binaryLog(sum, Fixed192x64Math.EstimationMode.UpperBound);
+        (uint256 sum, int256 offset, ) = sumExpOffset(
+            log2N,
+            otExpNums,
+            0,
+            Fixed192x64Math.EstimationMode.UpperBound
+        );
+        netCost = Fixed192x64Math.binaryLog(
+            sum,
+            Fixed192x64Math.EstimationMode.UpperBound
+        );
         netCost += offset;
         netCost = ((netCost * int256(ONE)) / log2N) * int256(funding);
 
@@ -48,21 +131,33 @@ contract LMSRMarketMaker is MarketMaker {
     /// @dev Returns marginal price of an outcome
     /// @param outcomeTokenIndex Index of outcome to determine marginal price of
     /// @return price Marginal price of an outcome as a fixed point number
-    function calcMarginalPrice(uint8 outcomeTokenIndex) public view returns (uint256 price) {
-        int256[] memory negOutcomeTokenBalances = new int256[](atomicOutcomeSlotCount);
+    function calcMarginalPrice(
+        uint8 outcomeTokenIndex
+    ) public view returns (uint256 price) {
+        int256[] memory negOutcomeTokenBalances = new int256[](
+            atomicOutcomeSlotCount
+        );
         for (uint256 i = 0; i < atomicOutcomeSlotCount; i++) {
-            int256 negBalance = -int256(pmSystem.balanceOf(address(this), generateAtomicPositionId(i)));
+            int256 negBalance = -int256(
+                pmSystem.balanceOf(address(this), generateAtomicPositionId(i))
+            );
             require(negBalance <= 0);
             negOutcomeTokenBalances[i] = negBalance;
         }
 
-        int256 log2N =
-            Fixed192x64Math.binaryLog(negOutcomeTokenBalances.length * ONE, Fixed192x64Math.EstimationMode.Midpoint);
+        int256 log2N = Fixed192x64Math.binaryLog(
+            negOutcomeTokenBalances.length * ONE,
+            Fixed192x64Math.EstimationMode.Midpoint
+        );
         // The price function is exp(quantities[i]/b) / sum(exp(q/b) for q in quantities)
         // To avoid overflow, calculate with
         // exp(quantities[i]/b - offset) / sum(exp(q/b - offset) for q in quantities)
-        (uint256 sum,, uint256 outcomeExpTerm) =
-            sumExpOffset(log2N, negOutcomeTokenBalances, outcomeTokenIndex, Fixed192x64Math.EstimationMode.Midpoint);
+        (uint256 sum, , uint256 outcomeExpTerm) = sumExpOffset(
+            log2N,
+            negOutcomeTokenBalances,
+            outcomeTokenIndex,
+            Fixed192x64Math.EstimationMode.Midpoint
+        );
         return outcomeExpTerm / (sum / ONE);
     }
 
@@ -82,7 +177,11 @@ contract LMSRMarketMaker is MarketMaker {
         int256[] memory otExpNums,
         uint8 outcomeIndex,
         Fixed192x64Math.EstimationMode estimationMode
-    ) private view returns (uint256 sum, int256 offset, uint256 outcomeExpTerm) {
+    )
+        private
+        view
+        returns (uint256 sum, int256 offset, uint256 outcomeExpTerm)
+    {
         // Naive calculation of this causes an overflow
         // since anything above a bit over 133*ONE supplied to exp will explode
         // as exp(133) just about fits into 192 bits of whole number data.
@@ -104,7 +203,10 @@ contract LMSRMarketMaker is MarketMaker {
         offset -= EXP_LIMIT;
         uint256 term;
         for (uint8 i = 0; i < otExpNums.length; i++) {
-            term = Fixed192x64Math.pow2((otExpNums[i] * log2N) / int256(funding) - offset, estimationMode);
+            term = Fixed192x64Math.pow2(
+                (otExpNums[i] * log2N) / int256(funding) - offset,
+                estimationMode
+            );
             if (i == outcomeIndex) outcomeExpTerm = term;
             sum += term;
         }
