@@ -10,7 +10,7 @@ import {IERC1155Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.
 import {ConditionalTokens} from "@lay3rlabs/conditional-tokens-contracts/ConditionalTokens.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
-abstract contract LMSRGasCostsTests is Test {
+abstract contract LMSRMarketMakerGasCostsTests is Test {
     ConditionalTokens public conditionalTokens;
     LMSRMarketMakerFactory public lmsrMarketMakerFactory;
     ERC20Mintable public collateralToken;
@@ -87,7 +87,7 @@ abstract contract LMSRGasCostsTests is Test {
     }
 }
 
-contract LMSRGasCostsTests_1_2 is LMSRGasCostsTests {
+contract LMSRMarketMakerGasCosts_1_2 is LMSRMarketMakerGasCostsTests {
     function setUp() public override {
         super.setUp();
         numConditions = 1;
@@ -95,7 +95,7 @@ contract LMSRGasCostsTests_1_2 is LMSRGasCostsTests {
     }
 }
 
-contract LMSRGasCostsTests_1_3 is LMSRGasCostsTests {
+contract LMSRMarketMakerGasCosts_1_3 is LMSRMarketMakerGasCostsTests {
     function setUp() public override {
         super.setUp();
         numConditions = 1;
@@ -103,7 +103,7 @@ contract LMSRGasCostsTests_1_3 is LMSRGasCostsTests {
     }
 }
 
-contract LMSRGasCostsTests_1_4 is LMSRGasCostsTests {
+contract LMSRMarketMakerGasCosts_1_4 is LMSRMarketMakerGasCostsTests {
     function setUp() public override {
         super.setUp();
         numConditions = 1;
@@ -111,7 +111,7 @@ contract LMSRGasCostsTests_1_4 is LMSRGasCostsTests {
     }
 }
 
-contract LMSRGasCostsTests_1_10 is LMSRGasCostsTests {
+contract LMSRMarketMakerGasCosts_1_10 is LMSRMarketMakerGasCostsTests {
     function setUp() public override {
         super.setUp();
         numConditions = 1;
@@ -119,7 +119,7 @@ contract LMSRGasCostsTests_1_10 is LMSRGasCostsTests {
     }
 }
 
-contract LMSRGasCostsTests_2_2 is LMSRGasCostsTests {
+contract LMSRMarketMakerGasCosts_2_2 is LMSRMarketMakerGasCostsTests {
     function setUp() public override {
         super.setUp();
         numConditions = 2;
@@ -127,7 +127,7 @@ contract LMSRGasCostsTests_2_2 is LMSRGasCostsTests {
     }
 }
 
-contract LMSRGasCostsTests_2_3 is LMSRGasCostsTests {
+contract LMSRMarketMakerGasCosts_2_3 is LMSRMarketMakerGasCostsTests {
     function setUp() public override {
         super.setUp();
         numConditions = 2;
@@ -135,7 +135,7 @@ contract LMSRGasCostsTests_2_3 is LMSRGasCostsTests {
     }
 }
 
-contract LMSRGasCostsTests_2_4 is LMSRGasCostsTests {
+contract LMSRMarketMakerGasCosts_2_4 is LMSRMarketMakerGasCostsTests {
     function setUp() public override {
         super.setUp();
         numConditions = 2;
@@ -143,7 +143,7 @@ contract LMSRGasCostsTests_2_4 is LMSRGasCostsTests {
     }
 }
 
-contract LMSRGasCostsTests_3_2 is LMSRGasCostsTests {
+contract LMSRMarketMakerGasCosts_3_2 is LMSRMarketMakerGasCostsTests {
     function setUp() public override {
         super.setUp();
         numConditions = 3;
@@ -151,7 +151,7 @@ contract LMSRGasCostsTests_3_2 is LMSRGasCostsTests {
     }
 }
 
-contract LMSRGasCostsTests_3_3 is LMSRGasCostsTests {
+contract LMSRMarketMakerGasCosts_3_3 is LMSRMarketMakerGasCostsTests {
     function setUp() public override {
         super.setUp();
         numConditions = 3;
@@ -159,7 +159,7 @@ contract LMSRGasCostsTests_3_3 is LMSRGasCostsTests {
     }
 }
 
-contract LMSRGasCostsTests_4_2 is LMSRGasCostsTests {
+contract LMSRMarketMakerGasCosts_4_2 is LMSRMarketMakerGasCostsTests {
     function setUp() public override {
         super.setUp();
         numConditions = 4;
