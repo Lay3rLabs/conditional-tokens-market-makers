@@ -37,19 +37,13 @@ contract LMSRMarketMakerTests is Test {
 
         questionId = keccak256(abi.encodePacked("question"));
         conditionalTokens.prepareCondition(ORACLE, questionId, NUM_OUTCOMES);
-        conditionId = conditionalTokens.getConditionId(
-            ORACLE,
-            questionId,
-            NUM_OUTCOMES
-        );
+        conditionId = conditionalTokens.getConditionId(ORACLE, questionId, NUM_OUTCOMES);
 
         positionId1 = conditionalTokens.getPositionId(
-            IERC20(address(collateralToken)),
-            conditionalTokens.getCollectionId(NULL_BYTES32, conditionId, 1)
+            IERC20(address(collateralToken)), conditionalTokens.getCollectionId(NULL_BYTES32, conditionId, 1)
         );
         positionId2 = conditionalTokens.getPositionId(
-            IERC20(address(collateralToken)),
-            conditionalTokens.getCollectionId(NULL_BYTES32, conditionId, 2)
+            IERC20(address(collateralToken)), conditionalTokens.getCollectionId(NULL_BYTES32, conditionId, 2)
         );
 
         conditionIds = new bytes32[](1);
@@ -69,15 +63,9 @@ contract LMSRMarketMakerTests is Test {
         collateralToken.approve(address(lmsrMarketMakerFactory), funding);
 
         vm.prank(TRADER);
-        LMSRMarketMaker lmsrMarketMaker = lmsrMarketMakerFactory
-            .createLMSRMarketMaker(
-                conditionalTokens,
-                IERC20(address(collateralToken)),
-                conditionIds,
-                0,
-                Whitelist(address(0)),
-                funding
-            );
+        LMSRMarketMaker lmsrMarketMaker = lmsrMarketMakerFactory.createLMSRMarketMaker(
+            conditionalTokens, IERC20(address(collateralToken)), conditionIds, 0, Whitelist(address(0)), funding
+        );
 
         // close
         vm.prank(TRADER);
@@ -93,11 +81,7 @@ contract LMSRMarketMakerTests is Test {
         conditionalTokens.setApprovalForAll(address(lmsrMarketMaker), true);
         vm.prank(TRADER);
         conditionalTokens.mergePositions(
-            IERC20(address(collateralToken)),
-            NULL_BYTES32,
-            conditionId,
-            partition,
-            funding
+            IERC20(address(collateralToken)), NULL_BYTES32, conditionId, partition, funding
         );
 
         assertEq(collateralToken.balanceOf(TRADER), funding);
@@ -112,25 +96,20 @@ contract LMSRMarketMakerTests is Test {
         collateralToken.approve(address(lmsrMarketMakerFactory), funding);
 
         vm.prank(INVESTOR);
-        LMSRMarketMaker lmsrMarketMaker = lmsrMarketMakerFactory
-            .createLMSRMarketMaker(
-                conditionalTokens,
-                IERC20(address(collateralToken)),
-                conditionIds,
-                5e16, // 5% fee
-                Whitelist(address(0)),
-                funding
-            );
+        LMSRMarketMaker lmsrMarketMaker = lmsrMarketMakerFactory.createLMSRMarketMaker(
+            conditionalTokens,
+            IERC20(address(collateralToken)),
+            conditionIds,
+            5e16, // 5% fee
+            Whitelist(address(0)),
+            funding
+        );
 
         // buy outcome tokens
         int256[] memory outcomeTokenAmounts = new int256[](NUM_OUTCOMES);
         outcomeTokenAmounts[0] = int256(tokenCount);
-        int256 outcomeTokenCost = lmsrMarketMaker.calcNetCost(
-            outcomeTokenAmounts
-        );
-        int256 fee = int256(
-            lmsrMarketMaker.calcMarketFee(uint256(outcomeTokenCost))
-        );
+        int256 outcomeTokenCost = lmsrMarketMaker.calcNetCost(outcomeTokenAmounts);
+        int256 fee = int256(lmsrMarketMaker.calcMarketFee(uint256(outcomeTokenCost)));
         // 5% fee
         assertEq(fee, (outcomeTokenCost * 5) / 100);
 
@@ -148,21 +127,14 @@ contract LMSRMarketMakerTests is Test {
 
         // sell outcome tokens
         outcomeTokenAmounts[0] = -int256(tokenCount);
-        int256 outcomeTokenProfit = -lmsrMarketMaker.calcNetCost(
-            outcomeTokenAmounts
-        );
-        fee = int256(
-            lmsrMarketMaker.calcMarketFee(uint256(outcomeTokenProfit))
-        );
+        int256 outcomeTokenProfit = -lmsrMarketMaker.calcNetCost(outcomeTokenAmounts);
+        fee = int256(lmsrMarketMaker.calcMarketFee(uint256(outcomeTokenProfit)));
         int256 profit = outcomeTokenProfit - fee;
 
         vm.prank(TRADER);
         conditionalTokens.setApprovalForAll(address(lmsrMarketMaker), true);
         vm.prank(TRADER);
-        int256 actualProfit = -lmsrMarketMaker.trade(
-            outcomeTokenAmounts,
-            -profit
-        );
+        int256 actualProfit = -lmsrMarketMaker.trade(outcomeTokenAmounts, -profit);
         assertEq(actualProfit, profit);
 
         assertEq(conditionalTokens.balanceOf(TRADER, positionId1), 0);
@@ -178,25 +150,20 @@ contract LMSRMarketMakerTests is Test {
         collateralToken.approve(address(lmsrMarketMakerFactory), funding);
 
         vm.prank(INVESTOR);
-        LMSRMarketMaker lmsrMarketMaker = lmsrMarketMakerFactory
-            .createLMSRMarketMaker(
-                conditionalTokens,
-                IERC20(address(collateralToken)),
-                conditionIds,
-                5e4, // 5% fee
-                Whitelist(address(0)),
-                funding
-            );
+        LMSRMarketMaker lmsrMarketMaker = lmsrMarketMakerFactory.createLMSRMarketMaker(
+            conditionalTokens,
+            IERC20(address(collateralToken)),
+            conditionIds,
+            5e4, // 5% fee
+            Whitelist(address(0)),
+            funding
+        );
 
         // short sell outcome tokens
         int256[] memory outcomeTokenAmounts = new int256[](NUM_OUTCOMES);
         outcomeTokenAmounts[1] = int256(tokenCount);
-        int256 outcomeTokenCost = lmsrMarketMaker.calcNetCost(
-            outcomeTokenAmounts
-        );
-        int256 fee = int256(
-            lmsrMarketMaker.calcMarketFee(uint256(outcomeTokenCost))
-        );
+        int256 outcomeTokenCost = lmsrMarketMaker.calcNetCost(outcomeTokenAmounts);
+        int256 fee = int256(lmsrMarketMaker.calcMarketFee(uint256(outcomeTokenCost)));
         int256 cost = outcomeTokenCost + fee;
 
         collateralToken.mint(TRADER, uint256(cost));
@@ -219,15 +186,9 @@ contract LMSRMarketMakerTests is Test {
         collateralToken.approve(address(lmsrMarketMakerFactory), funding);
 
         vm.prank(INVESTOR);
-        LMSRMarketMaker lmsrMarketMaker = lmsrMarketMakerFactory
-            .createLMSRMarketMaker(
-                conditionalTokens,
-                IERC20(address(collateralToken)),
-                conditionIds,
-                0,
-                Whitelist(address(0)),
-                funding
-            );
+        LMSRMarketMaker lmsrMarketMaker = lmsrMarketMakerFactory.createLMSRMarketMaker(
+            conditionalTokens, IERC20(address(collateralToken)), conditionIds, 0, Whitelist(address(0)), funding
+        );
 
         // get ready for trading
         uint256 tradingStipend = 1e19;
@@ -236,11 +197,7 @@ contract LMSRMarketMakerTests is Test {
         collateralToken.approve(address(conditionalTokens), tradingStipend);
         vm.prank(TRADER);
         conditionalTokens.splitPosition(
-            IERC20(address(collateralToken)),
-            NULL_BYTES32,
-            conditionId,
-            partition,
-            tradingStipend
+            IERC20(address(collateralToken)), NULL_BYTES32, conditionId, partition, tradingStipend
         );
 
         // allow all trading
@@ -256,10 +213,7 @@ contract LMSRMarketMakerTests is Test {
             int256 netCost = lmsrMarketMaker.calcNetCost(outcomeTokenAmounts);
 
             vm.prank(TRADER);
-            int256 actualCost = lmsrMarketMaker.trade(
-                outcomeTokenAmounts,
-                netCost
-            );
+            int256 actualCost = lmsrMarketMaker.trade(outcomeTokenAmounts, netCost);
             assertEq(actualCost, netCost);
         }
     }

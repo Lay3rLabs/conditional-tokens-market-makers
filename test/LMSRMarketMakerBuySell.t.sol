@@ -32,18 +32,10 @@ contract LMSRMarketMakerBuySellTests is Test {
         collateralToken = new ERC20Mintable();
     }
 
-    function manualSetUp(
-        uint256 creatorPrivateKey,
-        uint256 numOutcomes,
-        uint256 funding
-    ) public virtual {
+    function manualSetUp(uint256 creatorPrivateKey, uint256 numOutcomes, uint256 funding) public virtual {
         questionId = keccak256(abi.encodePacked("question", creatorPrivateKey));
         conditionalTokens.prepareCondition(ORACLE, questionId, numOutcomes);
-        conditionId = conditionalTokens.getConditionId(
-            ORACLE,
-            questionId,
-            numOutcomes
-        );
+        conditionId = conditionalTokens.getConditionId(ORACLE, questionId, numOutcomes);
 
         partition = new uint256[](numOutcomes);
         for (uint256 i = 0; i < numOutcomes; i++) {
@@ -61,12 +53,7 @@ contract LMSRMarketMakerBuySellTests is Test {
 
         vm.prank(creator);
         lmsrMarketMaker = lmsrMarketMakerFactory.createLMSRMarketMaker(
-            conditionalTokens,
-            IERC20(address(collateralToken)),
-            conditionIds,
-            0,
-            Whitelist(address(0)),
-            funding
+            conditionalTokens, IERC20(address(collateralToken)), conditionIds, 0, Whitelist(address(0)), funding
         );
     }
 
@@ -75,18 +62,11 @@ contract LMSRMarketMakerBuySellTests is Test {
 
         collateralToken.mint(TRADER, TOKEN_COUNT * LOOP_COUNT);
         vm.prank(TRADER);
-        collateralToken.approve(
-            address(conditionalTokens),
-            TOKEN_COUNT * LOOP_COUNT
-        );
+        collateralToken.approve(address(conditionalTokens), TOKEN_COUNT * LOOP_COUNT);
 
         vm.prank(TRADER);
         conditionalTokens.splitPosition(
-            IERC20(address(collateralToken)),
-            NULL_BYTES32,
-            conditionId,
-            partition,
-            TOKEN_COUNT * LOOP_COUNT
+            IERC20(address(collateralToken)), NULL_BYTES32, conditionId, partition, TOKEN_COUNT * LOOP_COUNT
         );
         vm.prank(TRADER);
         conditionalTokens.setApprovalForAll(address(lmsrMarketMaker), true);
@@ -105,10 +85,7 @@ contract LMSRMarketMakerBuySellTests is Test {
 
             // selling tokens
             vm.prank(TRADER);
-            int256 actualProfit = lmsrMarketMaker.trade(
-                outcomeTokenAmounts,
-                -int256(profit)
-            );
+            int256 actualProfit = lmsrMarketMaker.trade(outcomeTokenAmounts, -int256(profit));
             assertEq(-actualProfit, profit);
         }
         // selling of tokens is worth less than 1 Wei
@@ -117,11 +94,9 @@ contract LMSRMarketMakerBuySellTests is Test {
         assertGt(collateralToken.balanceOf(TRADER), initialBalance);
     }
 
-    function movePriceToOneAfterLotsOfOutcomeBought(
-        uint256 investorPrivateKey,
-        uint256 funding,
-        uint256 tokenCount
-    ) public {
+    function movePriceToOneAfterLotsOfOutcomeBought(uint256 investorPrivateKey, uint256 funding, uint256 tokenCount)
+        public
+    {
         manualSetUp(investorPrivateKey, 2, funding);
 
         // user buys collateral
@@ -139,10 +114,7 @@ contract LMSRMarketMakerBuySellTests is Test {
             vm.prank(TRADER);
             collateralToken.approve(address(lmsrMarketMaker), cost);
             vm.prank(TRADER);
-            int256 actualCost = lmsrMarketMaker.trade(
-                outcomeTokenAmounts,
-                int256(cost)
-            );
+            int256 actualCost = lmsrMarketMaker.trade(outcomeTokenAmounts, int256(cost));
             assertEq(uint256(actualCost), cost);
         }
 
@@ -163,23 +135,13 @@ contract LMSRMarketMakerBuySellTests is Test {
         uint256 initialCollateralTokenCount = 10e18;
 
         // user buys all outcomes
-        collateralToken.mint(
-            TRADER,
-            initialOutcomeTokenCount + initialCollateralTokenCount
-        );
+        collateralToken.mint(TRADER, initialOutcomeTokenCount + initialCollateralTokenCount);
         vm.prank(TRADER);
-        collateralToken.approve(
-            address(conditionalTokens),
-            initialOutcomeTokenCount
-        );
+        collateralToken.approve(address(conditionalTokens), initialOutcomeTokenCount);
 
         vm.prank(TRADER);
         conditionalTokens.splitPosition(
-            IERC20(address(collateralToken)),
-            NULL_BYTES32,
-            conditionId,
-            partition,
-            initialOutcomeTokenCount
+            IERC20(address(collateralToken)), NULL_BYTES32, conditionId, partition, initialOutcomeTokenCount
         );
 
         // user trades with the market maker
@@ -208,22 +170,12 @@ contract LMSRMarketMakerBuySellTests is Test {
                 TRADER,
                 conditionalTokens.getPositionId(
                     IERC20(address(collateralToken)),
-                    conditionalTokens.getCollectionId(
-                        NULL_BYTES32,
-                        conditionId,
-                        1 << i
-                    )
+                    conditionalTokens.getCollectionId(NULL_BYTES32, conditionId, 1 << i)
                 )
             );
-            assertEq(
-                outcomeTokenAmount,
-                uint256(int256(initialOutcomeTokenCount) + tradeValues[i])
-            );
+            assertEq(outcomeTokenAmount, uint256(int256(initialOutcomeTokenCount) + tradeValues[i]));
         }
 
-        assertEq(
-            collateralToken.balanceOf(TRADER),
-            initialCollateralTokenCount - uint256(cost)
-        );
+        assertEq(collateralToken.balanceOf(TRADER), initialCollateralTokenCount - uint256(cost));
     }
 }
