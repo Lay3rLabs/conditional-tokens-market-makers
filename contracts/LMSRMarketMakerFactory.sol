@@ -47,6 +47,9 @@ contract LMSRMarketMakerFactory {
         // Resume the market maker
         lmsrMarketMaker.resume();
 
+        // Transfer ownership to the creator
+        lmsrMarketMaker.transferOwnership(msg.sender);
+
         emit LMSRMarketMakerCreation(msg.sender, lmsrMarketMaker, pmSystem, collateralToken, conditionIds, fee, funding);
     }
 }
