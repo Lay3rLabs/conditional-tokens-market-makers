@@ -4,9 +4,11 @@ pragma solidity ^0.8.22;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {CTHelpers} from "@lay3rlabs/conditional-tokens-contracts/CTHelpers.sol";
 import {ConditionalTokens} from "@lay3rlabs/conditional-tokens-contracts/ConditionalTokens.sol";
 import {Whitelist} from "./Whitelist.sol";
+import {Interaction} from "./IIndexedEvents.sol";
 
 abstract contract MarketMaker is Ownable, IERC1155Receiver {
     /*
@@ -168,10 +170,13 @@ abstract contract MarketMaker is Ownable, IERC1155Receiver {
         // Calculate net cost for executing trade
         int256 outcomeTokenNetCost = calcNetCost(outcomeTokenAmounts);
         int256 fees;
+        string memory tradeType;
         if (outcomeTokenNetCost < 0) {
             fees = int256(calcMarketFee(uint256(-outcomeTokenNetCost)));
+            tradeType = "sell";
         } else {
             fees = int256(calcMarketFee(uint256(outcomeTokenNetCost)));
+            tradeType = "buy";
         }
 
         require(fees >= 0);
@@ -225,6 +230,11 @@ abstract contract MarketMaker is Ownable, IERC1155Receiver {
         if (netCost < 0) {
             require(collateralToken.transfer(msg.sender, uint256(-netCost)));
         }
+
+        string[] memory tags = new string[](2);
+        tags[0] = string.concat("tradeType:", tradeType);
+        tags[1] = string.concat("collateralToken:", Strings.toHexString(address(collateralToken)));
+        emit Interaction(msg.sender, "prediction_market_trade", tags, abi.encode(outcomeTokenAmounts, outcomeTokenNetCost, uint256(fees)));
     }
 
     /// @dev Calculates fee to be paid to market maker
